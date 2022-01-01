@@ -45,6 +45,7 @@ func runner(restartCh chan struct{}, dir string, commandToExecute []string) {
 	c := runProcess(commandToExecute, dir)
 	for range restartCh {
 		c.Process.Kill()
+		c.Process.Wait()
 		c = runProcess(commandToExecute, dir)
 	}
 }
