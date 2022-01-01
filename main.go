@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -44,8 +45,8 @@ func runProcess(command []string, dir string) *exec.Cmd {
 func runner(restartCh chan struct{}, dir string, commandToExecute []string) {
 	c := runProcess(commandToExecute, dir)
 	for range restartCh {
-		c.Process.Kill()
-		c.Process.Wait()
+		c.Process.Signal(syscall.SIGKILL)
+		c.Wait()
 		c = runProcess(commandToExecute, dir)
 	}
 }
