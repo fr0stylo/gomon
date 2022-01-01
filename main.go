@@ -45,8 +45,10 @@ func runProcess(command []string, dir string) *exec.Cmd {
 func runner(restartCh chan struct{}, dir string, commandToExecute []string) {
 	c := runProcess(commandToExecute, dir)
 	for range restartCh {
+		log.Print("Killing process")
 		c.Process.Signal(syscall.SIGKILL)
 		c.Wait()
+		log.Print("Starting new process")
 		c = runProcess(commandToExecute, dir)
 	}
 }
