@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"io"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -19,9 +21,12 @@ func pipeToStream(src *io.ReadCloser, dest io.WriteCloser) {
 	}
 }
 
-func runProcess(command []string, dir string) *exec.Cmd {
-	c := exec.Command(command[0], command[1:]...)
+var wg sync.WaitGroup
+
+func runProcess(ctx context.Context, command []string, dir string) {
+	c := exec.CommandContext(ctx, command[0], command[1:]...)
 	c.Dir = dir
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := c.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
@@ -34,23 +39,32 @@ func runProcess(command []string, dir string) *exec.Cmd {
 	go pipeToStream(&stderr, os.Stderr)
 	go pipeToStream(&stdout, os.Stdout)
 
-	err = c.Start()
-	if err != nil {
+	if err = c.Start(); err != nil {
 		log.Fatal(err)
 	}
 
-	return c
+	if err = c.Wait(); err != nil {
+		syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+		wg.Done()
+	}
 }
 
 func runner(restartCh chan struct{}, dir string, commandToExecute []string) {
-	c := runProcess(commandToExecute, dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	wg.Add(1)
+	go runProcess(ctx, commandToExecute, dir)
 	for range restartCh {
 		log.Print("Killing process")
-		c.Process.Signal(syscall.SIGKILL)
-		c.Wait()
+		cancel()
+
+		wg.Wait()
 		log.Print("Starting new process")
-		c = runProcess(commandToExecute, dir)
+		ctx, cancel = context.WithCancel(context.Background())
+		wg.Add(1)
+		go runProcess(ctx, commandToExecute, dir)
 	}
+
+	defer cancel()
 }
 
 func main() {
